@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.10)
+project(db_tutorial C)
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+add_executable(db db.c)

@@ -1,0 +1,26 @@
+name: Build with CMake
+
+on:
+  push:
+    branches:
+      - edidada/make
+  workflow_dispatch:
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run
+        run: |
+          output="$(printf 'insert 1 user1 person1@example.com\nselect\n.exit\n' | ./build/db mydb.db)"
+          echo "$output"
+          echo "$output" | grep -Fq 'user1'
