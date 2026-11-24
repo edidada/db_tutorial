@@ -37,8 +37,8 @@ jobs:
             (void)state;
             assert_int_equal(ROW_SIZE, 293);
             assert_int_equal(ID_SIZE, 4);
-            assert_int_equal(USERNAME_SIZE, 32);
-            assert_int_equal(EMAIL_SIZE, 255);
+            assert_int_equal(USERNAME_SIZE, 33);
+            assert_int_equal(EMAIL_SIZE, 256);
           }
 
           static void test_leaf_node_layout(void** state) {
