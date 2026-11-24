@@ -1,0 +1,35 @@
+name: edidada-ci (db_tutorial)
+
+# 只监听 edidada/master 分支：编译 C 版数据库 + 跑 RSpec 行为测试
+on:
+  push:
+    branches:
+      - edidada/master
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: make db
+
+      - name: Smoke run
+        run: |
+          output="$(printf 'insert 1 user1 person1@example.com\nselect\n.exit\n' | ./db smoke.db)"
+          echo "$output"
+          echo "$output" | grep -Fq 'user1'
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+          bundler-cache: false
+
+      - name: RSpec suite
+        run: |
+          gem install rspec -v 3.12.0 --no-document
+          rspec spec/main_spec.rb --format documentation
