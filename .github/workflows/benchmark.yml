@@ -1,0 +1,81 @@
+name: Benchmark (sysbench-style)
+
+on:
+  push:
+    branches:
+      - edidada/cmake
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build
+          cmake --build build
+
+      - name: Write benchmark script
+        run: |
+          mkdir -p tests/benchmark
+          cat > tests/benchmark/bench.py <<'EOF'
+          import os
+          import re
+          import subprocess
+          import sys
+          import tempfile
+          import time
+
+          DB = "./build/db"
+          ROWS = 500
+
+          fd, dbfile = tempfile.mkstemp(suffix=".db")
+          os.close(fd)
+          os.unlink(dbfile)
+
+          commands = ["insert %d user%d person%d@example.com" % (i, i, i)
+                      for i in range(1, ROWS + 1)] + [".exit"]
+          start = time.time()
+          proc = subprocess.run(
+              [DB, dbfile],
+              input="\n".join(commands) + "\n",
+              text=True,
+              capture_output=True,
+              timeout=120,
+          )
+          elapsed = time.time() - start
+          if proc.returncode != 0:
+              print("Insert benchmark FAILED")
+              sys.exit(1)
+          print("inserts: %d, elapsed: %.3fs, throughput: %.0f ops/s"
+                % (ROWS, elapsed, ROWS / elapsed))
+
+          start = time.time()
+          proc = subprocess.run(
+              [DB, dbfile],
+              input="select\n.exit\n",
+              text=True,
+              capture_output=True,
+              timeout=120,
+          )
+          elapsed = time.time() - start
+          count = len([line for line in proc.stdout.splitlines()
+                       if re.match(r"^\s*(db > )?\(\d+,", line)])
+          if count != ROWS:
+              print("Scan benchmark FAILED: expected %d rows, got %d"
+                    % (ROWS, count))
+              sys.exit(1)
+          print("scan: %d rows, elapsed: %.3fs, throughput: %.0f rows/s"
+                % (count, elapsed, count / elapsed))
+
+          os.unlink(dbfile)
+          EOF
+
+      - name: Run benchmark
+        run: |
+          echo "NOTE: full TPC-C / TPC-H / sysbench workloads need transactions"
+          echo "and multi-table SQL; running a single-table insert/scan benchmark."
+          python3 tests/benchmark/bench.py

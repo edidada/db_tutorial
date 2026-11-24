@@ -1,0 +1,124 @@
+name: Unit Tests (CMocka)
+
+on:
+  push:
+    branches:
+      - edidada/cmake
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install CMocka
+        run: sudo apt-get update && sudo apt-get install -y libcmocka-dev
+
+      - name: Write unit tests
+        run: |
+          mkdir -p tests/unit
+          cat > tests/unit/test_modules.c <<'EOF'
+          #include <stdarg.h>
+          #include <stddef.h>
+          #include <setjmp.h>
+          #include <stdint.h>
+          #include <string.h>
+          #include <unistd.h>
+          #include <cmocka.h>
+
+          #include "common.h"
+          #include "node.h"
+          #include "pager.h"
+          #include "row.h"
+
+          static void test_row_size(void** state) {
+            (void)state;
+            assert_int_equal(ROW_SIZE, 293);
+            assert_int_equal(ID_SIZE, 4);
+            assert_int_equal(USERNAME_SIZE, 32);
+            assert_int_equal(EMAIL_SIZE, 255);
+          }
+
+          static void test_leaf_node_layout(void** state) {
+            (void)state;
+            char page[PAGE_SIZE] = {0};
+            initialize_leaf_node(page);
+            assert_int_equal(get_node_type(page), NODE_LEAF);
+            assert_false(is_node_root(page));
+            assert_int_equal(*leaf_node_num_cells(page), 0);
+            assert_int_equal(*leaf_node_next_leaf(page), 0);
+            set_node_root(page, true);
+            assert_true(is_node_root(page));
+          }
+
+          static void test_internal_node_layout(void** state) {
+            (void)state;
+            char page[PAGE_SIZE] = {0};
+            initialize_internal_node(page);
+            assert_int_equal(get_node_type(page), NODE_INTERNAL);
+            assert_int_equal(*internal_node_num_keys(page), 0);
+            assert_int_equal(*internal_node_right_child(page), INVALID_PAGE_NUM);
+          }
+
+          static void test_row_serialization(void** state) {
+            (void)state;
+            Row row = {0};
+            row.id = 7;
+            strcpy(row.username, "user7");
+            strcpy(row.email, "user7@example.com");
+            char buf[ROW_SIZE] = {0};
+            serialize_row(&row, buf);
+            Row out = {0};
+            deserialize_row(buf, &out);
+            assert_int_equal(out.id, 7);
+            assert_string_equal(out.username, "user7");
+            assert_string_equal(out.email, "user7@example.com");
+          }
+
+          static void test_pager_pages(void** state) {
+            (void)state;
+            const char* path = "/tmp/db_unit_pager.db";
+            unlink(path);
+            Pager* pager = pager_open(path);
+            assert_non_null(pager);
+            assert_int_equal(pager->num_pages, 0);
+            assert_int_equal(get_unused_page_num(pager), 0);
+
+            void* page0 = get_page(pager, 0);
+            assert_non_null(page0);
+            assert_int_equal(pager->num_pages, 1);
+            assert_int_equal(get_unused_page_num(pager), 1);
+
+            void* again = get_page(pager, 0);
+            assert_ptr_equal(page0, again);
+            assert_int_equal(pager->num_pages, 1);
+
+            close(pager->file_descriptor);
+            for (uint32_t i = 0; i < TABLE_MAX_PAGES; i++) {
+              free(pager->pages[i]);
+            }
+            free(pager);
+            unlink(path);
+          }
+
+          int main(void) {
+            const struct CMUnitTest tests[] = {
+              cmocka_unit_test(test_row_size),
+              cmocka_unit_test(test_leaf_node_layout),
+              cmocka_unit_test(test_internal_node_layout),
+              cmocka_unit_test(test_row_serialization),
+              cmocka_unit_test(test_pager_pages),
+            };
+            return cmocka_run_group_tests(tests, NULL, NULL);
+          }
+          EOF
+
+      - name: Build and run unit tests
+        run: |
+          gcc -std=c99 -Wall -Isrc \
+            tests/unit/test_modules.c \
+            src/common.c src/node.c src/pager.c src/row.c \
+            -lcmocka -o /tmp/db_unit_tests
+          /tmp/db_unit_tests

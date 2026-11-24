@@ -1,0 +1,103 @@
+name: SQLancer-style Logic Checks
+
+on:
+  push:
+    branches:
+      - edidada/cmake
+  workflow_dispatch:
+
+jobs:
+  logic-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build
+          cmake --build build
+
+      - name: Write differential logic checks
+        run: |
+          mkdir -p tests/sqlancer
+          cat > tests/sqlancer/logic_check.py <<'EOF'
+          import os
+          import random
+          import re
+          import subprocess
+          import sys
+          import tempfile
+
+          DB = "./build/db"
+
+          def run(commands):
+              fd, dbfile = tempfile.mkstemp(suffix=".db")
+              os.close(fd)
+              os.unlink(dbfile)
+              proc = subprocess.run(
+                  [DB, dbfile],
+                  input="\n".join(commands) + "\n",
+                  text=True,
+                  capture_output=True,
+                  timeout=60,
+              )
+              os.unlink(dbfile)
+              return proc.stdout
+
+          def rows(output):
+              found = []
+              for line in output.splitlines():
+                  line = re.sub(r"^db >\s*", "", line).strip()
+                  if re.match(r"^\(\d+,", line):
+                      found.append(line)
+              return sorted(found)
+
+          ids = list(range(1, 41))
+          shuffled = ids[:]
+          random.seed(20240523)
+          random.shuffle(shuffled)
+
+          def script(order):
+              cmds = ["insert %d user%d person%d@example.com" % (i, i, i)
+                      for i in order]
+              cmds += ["select", ".exit"]
+              return cmds
+
+          forward = rows(run(script(ids)))
+          reverse = rows(run(script(list(reversed(ids)))))
+          random_order = rows(run(script(shuffled)))
+
+          if forward != reverse or forward != random_order:
+              print("Differential check FAILED")
+              print("forward:", forward)
+              print("reverse:", reverse)
+              print("random:", random_order)
+              sys.exit(1)
+          print("Differential check passed: %d identical rows" % len(forward))
+
+          dup = run(["insert 1 user1 person1@example.com",
+                     "insert 1 user2 person2@example.com", ".exit"])
+          if "Error: Duplicate key." not in dup:
+              print("Duplicate-key check FAILED")
+              sys.exit(1)
+          print("Duplicate-key check passed")
+
+          neg = run(["insert -1 bad bad@example.com", ".exit"])
+          if "ID must be positive." not in neg:
+              print("Negative-id check FAILED")
+              sys.exit(1)
+          print("Negative-id check passed")
+
+          long_case = run(["insert 1 " + "a" * 33 + " b@example.com", ".exit"])
+          if "String is too long." not in long_case:
+              print("Length check FAILED")
+              sys.exit(1)
+          print("Length check passed")
+          EOF
+
+      - name: Run logic checks
+        run: |
+          echo "NOTE: full SQLancer needs an optimizer and multiple query plans;"
+          echo "this toy engine has neither, so differential checks are used."
+          python3 tests/sqlancer/logic_check.py

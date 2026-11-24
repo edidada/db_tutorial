@@ -1,0 +1,46 @@
+name: RSpec (Shell, SQL, Persistence)
+
+on:
+  push:
+    branches:
+      - edidada/cmake
+  workflow_dispatch:
+
+jobs:
+  rspec:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build
+          cmake --build build
+          cp build/db ./db
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+
+      - name: Run RSpec suite
+        run: |
+          gem install rspec -v 3.12.0 --no-document
+          rspec spec/main_spec.rb --format documentation
+
+      - name: Shell behavior checks
+        run: |
+          output="$(printf '.bogus\n.constants\n.exit\n' | ./db shell_check.db)"
+          echo "$output"
+          echo "$output" | grep -Fq "Unrecognized command '.bogus'"
+          echo "$output" | grep -Fq 'Constants:'
+          echo "$output" | grep -Fq 'ROW_SIZE: 293'
+
+      - name: Restart recovery check
+        run: |
+          rm -f restart.db
+          printf 'insert 1 user1 person1@example.com\n.exit\n' | ./db restart.db > /dev/null
+          output="$(printf 'select\n.exit\n' | ./db restart.db)"
+          echo "$output"
+          echo "$output" | grep -Fq '(1, user1, person1@example.com)'

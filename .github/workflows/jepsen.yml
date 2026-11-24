@@ -1,0 +1,90 @@
+name: Consistency Checks (Jepsen-style)
+
+on:
+  push:
+    branches:
+      - edidada/cmake
+  workflow_dispatch:
+
+jobs:
+  consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build
+          cmake --build build
+
+      - name: Write consistency checks
+        run: |
+          mkdir -p tests/jepsen
+          cat > tests/jepsen/consistency_check.py <<'EOF'
+          import os
+          import re
+          import subprocess
+          import sys
+          import tempfile
+
+          DB = "./build/db"
+
+          def run(dbfile, commands):
+              proc = subprocess.run(
+                  [DB, dbfile],
+                  input="\n".join(commands) + "\n",
+                  text=True,
+                  capture_output=True,
+                  timeout=60,
+              )
+              return proc.stdout
+
+          def ids(output):
+              found = []
+              for line in output.splitlines():
+                  line = re.sub(r"^db >\s*", "", line).strip()
+                  m = re.match(r"^\((\d+),", line)
+                  if m:
+                      found.append(int(m.group(1)))
+              return sorted(found)
+
+          fd, dbfile = tempfile.mkstemp(suffix=".db")
+          os.close(fd)
+          os.unlink(dbfile)
+
+          # Sequential writes across several "sessions" (process restarts).
+          expected = list(range(1, 101))
+          for start in range(1, 101, 10):
+              batch = ["insert %d user%d person%d@example.com" % (i, i, i)
+                       for i in range(start, start + 10)]
+              output = run(dbfile, batch + [".exit"])
+              if "Executed." not in output:
+                  print("Write batch %d FAILED" % start)
+                  sys.exit(1)
+
+          # Read after all restarts: no lost updates.
+          observed = ids(run(dbfile, ["select", ".exit"]))
+          if observed != expected:
+              print("Consistency check FAILED: lost or duplicated writes")
+              print("expected:", expected)
+              print("observed:", observed)
+              sys.exit(1)
+          print("Consistency check passed: %d rows survived restarts" % len(observed))
+
+          # Duplicate id must be rejected, not silently overwritten.
+          dup = run(dbfile, ["insert 1 dup dup@example.com", ".exit"])
+          if "Error: Duplicate key." not in dup:
+              print("Duplicate rejection FAILED")
+              sys.exit(1)
+          print("Duplicate rejection passed")
+
+          os.unlink(dbfile)
+          EOF
+
+      - name: Run consistency checks
+        run: |
+          echo "NOTE: this engine is single-node with no replication, so"
+          echo "Jepsen's multi-node scenarios are not applicable. Running"
+          echo "single-node crash/restart consistency checks instead."
+          python3 tests/jepsen/consistency_check.py
