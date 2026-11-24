@@ -24,3 +24,14 @@ jobs:
           output="$(printf 'insert 1 user1 person1@example.com\nselect\n.exit\n' | ./build/db mydb.db)"
           echo "$output"
           echo "$output" | grep -Fq 'user1'
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+
+      - name: Test
+        run: |
+          cp build/db ./db
+          gem install rspec -v 3.12.0 --no-document
+          rspec spec/main_spec.rb --format documentation
