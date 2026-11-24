@@ -3,7 +3,7 @@ name: Build with CMake
 on:
   push:
     branches:
-      - edidada/make
+      - edidada/cmake
   workflow_dispatch:
 
 jobs:
