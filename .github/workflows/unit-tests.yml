@@ -68,7 +68,8 @@ jobs:
             row.id = 7;
             strcpy(row.username, "user7");
             strcpy(row.email, "user7@example.com");
-            char buf[ROW_SIZE] = {0};
+            char buf[ROW_SIZE];
+            memset(buf, 0, ROW_SIZE);
             serialize_row(&row, buf);
             Row out = {0};
             deserialize_row(buf, &out);
@@ -117,7 +118,7 @@ jobs:
 
       - name: Build and run unit tests
         run: |
-          gcc -std=c99 -Wall -Isrc \
+          gcc -std=gnu99 -Wall -Isrc \
             tests/unit/test_modules.c \
             src/common.c src/node.c src/pager.c src/row.c \
             -lcmocka -o /tmp/db_unit_tests
