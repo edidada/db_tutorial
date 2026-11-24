@@ -1,5 +1,7 @@
-db: db.c
-	gcc db.c -o db
+SRC = $(wildcard src/*.c)
+
+db: $(SRC)
+	gcc $(SRC) -o db -Isrc
 
 run: db
 	./db mydb.db
@@ -10,5 +12,5 @@ clean:
 test: db
 	bundle exec rspec
 
-format: *.c
-	clang-format -style=Google -i *.c
+format: $(SRC)
+	clang-format -style=Google -i $(SRC)
